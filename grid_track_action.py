@@ -43,9 +43,8 @@ def find_pcbnew_w():
     return pcbneww[0]
 
 def create_arc(board: pcbnew.BOARD, center: np.ndarray, start_point: np.ndarray, end_point: np.ndarray, width: float):
-    new_arc = pcbnew.PCB_SHAPE()
+    new_arc = pcbnew.PCB_ARC(board)
     fromMM = lambda x: pcbnew.FromMM(float(x))
-    new_arc.SetShape(pcbnew.SHAPE_T_ARC)
     R = np.linalg.norm(start_point - center)
 
     AB = end_point - start_point
@@ -58,10 +57,12 @@ def create_arc(board: pcbnew.BOARD, center: np.ndarray, start_point: np.ndarray,
     p1= pcbnew.wxPoint(fromMM(end_point[0]), fromMM(end_point[1]))
     md= pcbnew.wxPoint(fromMM(midpoint[0]), fromMM(midpoint[1]))
 
-    new_arc.SetArcGeometry(p1, md, p2)
+    new_arc.SetStart(p1)
+    new_arc.SetMid(md)
+    new_arc.SetEnd(p2)
     new_arc.SetWidth(fromMM(width))
     new_arc.SetLayer(pcbnew.F_Cu) 
-    length = (new_arc.GetArcAngle() / 10.0)*(np.pi/180.0) * R
+    length = (new_arc.GetAngle() / 10.0)*(np.pi/180.0) * R
     board.Add(new_arc)
     return length
 
@@ -111,6 +112,7 @@ class CreateGridTrack(pcbnew.ActionPlugin):
         self.name = "Make Grid Tracks"
         self.category = "Modify Drawing PCB"
         self.description = "Creates a round or rectangular grid track"
+        self.show_toolbar_button = True
 
     def Run(self):
         dlg = GridTrackDialog(find_pcbnew_w())
