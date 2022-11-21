@@ -6,6 +6,8 @@ import sys
 import math
 import numpy as np
 
+#TODO(HEIDT) get the userspace units and use those instead of mm for outward facing things
+
 if __name__ == "__main__":
     import grid_track_GUI
 else:
@@ -73,9 +75,9 @@ def create_arc(
     new_arc.SetEnd(p2)
     new_arc.SetWidth(fromMM(width))
     new_arc.SetLayer(pcbnew.F_Cu)
-    length = (new_arc.GetAngle() / 10.0) * (np.pi / 180.0) * R
+    length = np.abs((new_arc.GetAngle() / 10.0) * (np.pi / 180.0) * R)
     board.Add(new_arc)
-    return length
+    return length, new_arc
 
 
 def create_track(board: pcbnew.BOARD, start: np.ndarray, end: np.ndarray, width: float):
@@ -87,18 +89,31 @@ def create_track(board: pcbnew.BOARD, start: np.ndarray, end: np.ndarray, width:
     new_track.SetWidth(fromMM(width))
     new_track.SetLayer(pcbnew.F_Cu)
     board.Add(new_track)
-    return np.linalg.norm(start - end)
+    return np.linalg.norm(start - end), new_track
 
 
 def get_y_from_circle(x: float, radius: float):
     return np.sqrt(radius**2.0 - x**2.0)
 
+def extend_group(tracks: list, group: pcbnew.PCB_GROUP):
+    #TODO(HEIDT) both this and calc length are using implicit linking to track list
+    for track in tracks:
+        group.AddItem(track[1])
+
+def calc_length(tracks: list, length: float) -> float: 
+    # TODO(HEIDT) this doens't account for the extra length from the radius
+    for track in tracks:
+        length += track[0]
+    return length
 
 def make_round_array(
     board: pcbnew.BOARD, center: np.ndarray, width: float, radius: float, spacing: float
 ):
-    gap = spacing * 1.5 + width * 1.5
+    gap = spacing + width
     start_y = get_y_from_circle(-gap, radius)
+    group = pcbnew.PCB_GROUP(board)
+    board.Add(group)
+    length = 0.0
 
     while start_y > spacing * 2 + width * 2:
         start_point = np.array((-gap, start_y))
@@ -109,14 +124,19 @@ def make_round_array(
         next_end = np.array(start_point)
         next_end[1] -= width + spacing
 
+        # TODO(HEIDT) repeated start_y reduction here and in next_start/end
         start_y -= 2 * (width + spacing)
         finishing_point = np.array(next_end)
         finishing_point[1] = start_y
 
-        create_arc(board, center, start_point, end_point, width)
-        create_track(board, end_point, next_start, width)
-        create_arc(board, center, next_start, next_end, width)
-        create_track(board, next_end, finishing_point, width)
+        a1 = create_arc(board, center, start_point, end_point, width)
+        t1 = create_track(board, end_point, next_start, width)
+        a2 = create_arc(board, center, next_start, next_end, width)
+        t2 = create_track(board, next_end, finishing_point, width)
+        extend_group((a1, t1, a2, t2), group)
+        length = calc_length((a1, t1, a2, t2), length)
+
+    wx.LogMessage(f"Total length is approx {length} mm")
 
 
 class CreateGridTrack(pcbnew.ActionPlugin):
