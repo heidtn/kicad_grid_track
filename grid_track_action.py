@@ -6,6 +6,8 @@ import sys
 import math
 import numpy as np
 
+import FootprintWizardBase
+
 #TODO(HEIDT) get the userspace units and use those instead of mm for outward facing things
 
 if __name__ == "__main__":
@@ -138,6 +140,51 @@ def make_round_array(
 
     wx.LogMessage(f"Total length is approx {length} mm")
 
+def footprint_arc(board: FootprintWizardBase.FootprintWizard, center: np.ndarray, start_point: np.ndarray, end_point: np.ndarray, width: float):
+    vec2 = end_point - center
+    vec1 = start_point - center 
+    angle = np.arctan2(vec1[1], vec1[0]) - np.arctan2(vec2[1], vec2[0])
+    
+    angle = (360.0 - np.rad2deg(angle)) * 10.0
+    board.draw.Arc(float(center[0]), float(center[1]), 
+                   float(start_point[0]), float(start_point[1]), float(angle))
+
+    length = 2.0 * np.pi * np.linalg.norm(vec1) * (angle / 3600.0)
+    return length
+
+def footprint_track(board: FootprintWizardBase.FootprintWizard, start_point: np.ndarray, end_point: np.ndarray, width: float):
+    board.draw.Line(float(start_point[0]), float(start_point[1]), 
+                    float(end_point[0]), float(end_point[1]))
+    return np.linalg.norm(end_point - start_point)
+
+def make_round_footprint(
+    board: FootprintWizardBase, center: np.ndarray, width: float, radius: float, spacing: float
+):
+    gap = spacing + width
+    start_y = get_y_from_circle(-gap, radius)
+    length = 0.0
+
+    while start_y > spacing * 2 + width * 2:
+        start_point = np.array((-gap, start_y))
+        end_point = np.array((gap, start_y))
+
+        next_start = np.array(end_point)
+        next_start[1] -= width + spacing
+        next_end = np.array(start_point)
+        next_end[1] -= width + spacing
+
+        # TODO(HEIDT) repeated start_y reduction here and in next_start/end
+        start_y -= 2 * (width + spacing)
+        finishing_point = np.array(next_end)
+        finishing_point[1] = start_y
+
+        a1 = footprint_arc(board, center, start_point, end_point, width)
+        t1 = footprint_track(board, end_point, next_start, width)
+        a2 = footprint_arc(board, center, next_end, next_start, width)
+        t2 = footprint_track(board, next_end, finishing_point, width)
+        length += a1 + t1 + a2 + t2
+
+    wx.LogMessage(f"Total length is approx {length/1e6} mm")
 
 class CreateGridTrack(pcbnew.ActionPlugin):
     """
@@ -170,3 +217,29 @@ class CreateGridTrack(pcbnew.ActionPlugin):
         # if dlg.chkbox_tracks.GetValue():
 
         pcbnew.Refresh()
+
+
+class GridTrackWizard(FootprintWizardBase.FootprintWizard):
+    """used to create a footprint for a resistor for example.  Probably the better option.
+
+    """
+    GetName = lambda self: "GridTrack"
+    GetDescription = lambda self: GridTrackWizard.__doc__
+    GetReferencePrefix = lambda self: "grid"
+    GetValue = lambda self: "GridTrack"
+
+    def GenerateParameterList(self):
+        self.AddParam("gridtrack", "tracksize", self.uMM, 0.5)
+        self.AddParam("gridtrack", "trackspacing", self.uMM, 0.25)
+        self.AddParam("gridtrack", "diameter", self.uMM, 25)
+
+    def BuildThisFootprint(self):
+        tracksize = self.parameters["gridtrack"]["tracksize"]
+        trackspacing = self.parameters["gridtrack"]["trackspacing"]
+        diameter = self.parameters["gridtrack"]["diameter"]
+        self.draw.SetLayer(pcbnew.F_Cu)
+        self.draw.SetLineThickness(tracksize)
+        make_round_footprint(self, np.array((0, 0)), tracksize, diameter/2.0, trackspacing)
+
+    def CheckParameters(self):
+        pass
